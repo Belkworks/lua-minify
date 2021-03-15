@@ -1862,13 +1862,13 @@ end
 function PrintAst(ast)
 
 	local printStat, printExpr;
+	local result = ''
 
 	local function printt(tk)
 		if not tk.LeadingWhite or not tk.Source then
 			error("Bad token: "..FormatTable(tk))
 		end
-		io.write(tk.LeadingWhite)
-		io.write(tk.Source)
+		result = result .. tk.LeadingWhite .. tk.Source
 	end
 
 	printExpr = function(expr)
@@ -2128,6 +2128,7 @@ function PrintAst(ast)
 	end
 
 	printStat(ast)
+	return result
 end
 
 -- Adds / removes whitespace in an AST to put it into a "standard formatting"
@@ -3106,34 +3107,6 @@ local function MinifyVariables_2(globalScope, rootScope)
 			end
 		end
 	end
-
-
-	-- -- 
-	-- print("Total Variables: "..#allVariables)
-	-- print("Total Range: "..rootScope.BeginLocation.."-"..rootScope.EndLocation)
-	-- print("")
-	-- for _, var in pairs(allVariables) do
-	-- 	io.write("`"..var.Name.."':\n\t#symbols: "..#var.RenameList..
-	-- 		"\n\tassigned to: "..tostring(var.AssignedTo))
-	-- 	if var.Type == 'Local' then
-	-- 		io.write("\n\trange: "..var.BeginLocation.."-"..var.EndLocation)
-	-- 		io.write("\n\tlocal type: "..var.Info.Type)
-	-- 	end
-	-- 	io.write("\n\n")
-	-- end
-
-	-- -- First we want to rename all of the variables to unique temoraries, so that we can
-	-- -- easily use the scope::GetVar function to check whether renames are valid.
-	-- local temporaryIndex = 0
-	-- for _, var in pairs(allVariables) do
-	-- 	var:Rename('_TMP_'..temporaryIndex..'_')
-	-- 	temporaryIndex = temporaryIndex + 1
-	-- end
-
-	-- For each variable, we need to build a list of names that collide with it
-
-	--
-	--error()
 end
 
 local function BeautifyVariables(globalScope, rootScope)
@@ -3181,47 +3154,25 @@ local function BeautifyVariables(globalScope, rootScope)
 	modify(rootScope)
 end
 
-local function usageError()
-	error(
-			"\nusage: minify <file> or unminify <file>\n" ..
-			"  The modified code will be printed to the stdout, pipe it to a file, the\n" ..
-			"  lua interpreter, or something else as desired EG:\n\n" ..
-			"        lua minify.lua minify input.lua > output.lua\n\n" ..
-			"  * minify will minify the code in the file.\n" ..
-			"  * unminify will beautify the code and replace the variable names with easily\n" ..
-			"    find-replacable ones to aide in reverse engineering minified code.\n", 0)
+function parseLua(code) -- code -> ast, global, root
+	local ast = CreateLuaParser(code)
+	local global_scope, root_scope = AddVariableInfo(ast)
+	return ast, global_scope, root_scope
 end
 
-local args = {...}
-if #args ~= 2 then
-	usageError()
-end
+lua_minify = {
+	minify = function(code) -- code -> minified code
+		local ast, global_scope, root_scope = parseLua(code)
+		MinifyVariables(global_scope, root_scope)
+		StripAst(ast)
+		return PrintAst(ast)
+	end,
+	beautify = function(code) -- code -> beautified code
+		local ast, global_scope, root_scope = parseLua(code)
+		BeautifyVariables(global_scope, root_scope)
+		FormatAst(ast)
+		return PrintAst(ast)
+	end
+}
 
-local sourceFile = io.open(args[2], 'r')
-if not sourceFile then
-	error("Could not open the input file `" .. args[2] .. "`", 0)
-end
-
-local data = sourceFile:read('*all')
-local ast = CreateLuaParser(data)
-local global_scope, root_scope = AddVariableInfo(ast)
-
-local function minify(ast, global_scope, root_scope)
-	MinifyVariables(global_scope, root_scope)
-	StripAst(ast)
-	PrintAst(ast)
-end
-
-local function beautify(ast, global_scope, root_scope)
-	BeautifyVariables(global_scope, root_scope)
-	FormatAst(ast)
-	PrintAst(ast)
-end
-
-if args[1] == 'minify' then
-	minify(ast, global_scope, root_scope)
-elseif args[1] == 'unminify' then
-	beautify(ast, global_scope, root_scope)
-else
-	usageError()
-end
+return lua_minify
